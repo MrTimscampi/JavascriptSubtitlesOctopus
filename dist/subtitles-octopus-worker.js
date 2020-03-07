@@ -7233,25 +7233,42 @@ self.setIsPaused = function(isPaused) {
 };
 
 self.render = function(force) {
- self.rafId = 0;
- self.renderPending = false;
- var startTime = performance.now();
- var renderResult = self._render(self.getCurrentTime() + self.delay, self.changed);
- var changed = Module.getValue(self.changed, "i32");
- if (changed != 0 || force) {
-  var result = self.buildResult(renderResult);
-  var spentTime = performance.now() - startTime;
-  postMessage({
-   target: "canvas",
-   op: "renderCanvas",
-   time: Date.now(),
-   spentTime: spentTime,
-   canvases: result[0]
-  }, result[1]);
- }
- if (!self._isPaused) {
-  self.rafId = self.requestAnimationFrame(self.render);
- }
+    self.rafId = 0;
+    self.renderPending = false;
+    var startTime = performance.now();
+    var renderResult = self._render(self.getCurrentTime() + self.delay, self.changed);
+    var changed = Module.getValue(self.changed, "i32");
+    if (changed != 0 || force) {
+        var result = self.buildResult(renderResult);
+        var newTime = performance.now();
+        var libassTime = newTime - startTime;
+        var promises = [];
+        for (var i = 0; i < result[0].length; i++) {
+            var image = result[0][i];
+            var imageBuffer = new Uint8ClampedArray(image.buffer);
+            var imageData = new ImageData(imageBuffer, image.w, image.h);
+            promises[i] = createImageBitmap(imageData, 0, 0, image.w, image.h);
+        }
+        Promise.all(promises).then(function (imgs) {
+            var decodeTime = performance.now() - newTime;
+            var bitmaps = [];
+            for (var i = 0; i < imgs.length; i++) {
+                var image = result[0][i];
+                bitmaps[i] = { x: image.x, y: image.y, bitmap: imgs[i] };
+            }
+            postMessage({
+                target: "canvas",
+                op: "renderMultiple",
+                time: Date.now(),
+                libassTime: libassTime,
+                decodeTime: decodeTime,
+                bitmaps: bitmaps
+            }, imgs);
+        });
+    }
+    if (!self._isPaused) {
+        self.rafId = self.requestAnimationFrame(self.render);
+    }
 };
 
 self.fastRender = function(force) {
