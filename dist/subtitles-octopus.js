@@ -13,7 +13,7 @@ var SubtitlesOctopus = function (options) {
 
     var self = this;
     self.canvas = options.canvas; // HTML canvas element (optional if video specified)
-    self.lossyRender = options.lossyRender; // Speedup render for heavy subs
+    self.renderMode = 'blend'; // DON'T CARE LOLZ - JAM
     self.isOurCanvas = false; // (internal) we created canvas and manage it
     self.video = options.video; // HTML video element (optional if canvas specified)
     self.canvasParent = null; // (internal) HTML canvas parent element
@@ -99,7 +99,7 @@ var SubtitlesOctopus = function (options) {
             URL: document.URL,
             currentScript: self.workerUrl,
             preMain: true,
-            fastRender: self.lossyRender,
+            renderMode: self.renderMode,
             subUrl: self.subUrl,
             subContent: self.subContent,
             fonts: self.fonts,
@@ -237,13 +237,28 @@ var SubtitlesOctopus = function (options) {
         var data = self.renderFramesData;
         var beforeDrawTime = performance.now();
         self.ctx.clearRect(0, 0, self.canvas.width, self.canvas.height);
-        for (var i = 0; i < data.bitmaps.length; i++) {
-            var image = data.bitmaps[i];
-            self.ctx.drawImage(image.bitmap, image.x, image.y);
+        for (var i = 0; i < data.canvases.length; i++) {
+            var image = data.canvases[i];
+            self.bufferCanvas.width = image.w;
+            self.bufferCanvas.height = image.h;
+            var imageBuffer = new Uint8ClampedArray(image.buffer);
+            if (self.hasAlphaBug) {
+                for (var j = 3; j < imageBuffer.length; j = j + 4) {
+                    imageBuffer[j] = (imageBuffer[j] >= 1) ? imageBuffer[j] : 1;
+                }
+            }
+            var imageData = new ImageData(imageBuffer, image.w, image.h);
+            self.bufferCanvasCtx.putImageData(imageData, 0, 0);
+            self.ctx.drawImage(self.bufferCanvas, image.x, image.y);
         }
         if (self.debug) {
             var drawTime = Math.round(performance.now() - beforeDrawTime);
-            console.log(data.bitmaps.length + ' bitmaps, libass: ' + Math.round(data.libassTime) + 'ms, decode: ' + Math.round(data.decodeTime) + 'ms, draw: ' + drawTime + 'ms');
+            var blendTime = data.blendTime || 0;
+            if (blendTime > 0) {
+                console.log('render: ' + Math.round(data.spentTime - blendTime) + ' ms, blend: ' + Math.round(blendTime) + ' ms, draw: ' + drawTime + ' ms');
+            } else {
+                console.log(Math.round(data.spentTime) + ' ms (+ ' + drawTime + ' ms draw)');
+            }
             self.renderStart = performance.now();
         }
     }
